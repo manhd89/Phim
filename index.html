@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CineStream v4 - Search & Play</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #020617; color: white; }
+        .glass { background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.05); }
+        .movie-card:hover img { transform: scale(1.05); transition: 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
+        .active-ep { background: #3b82f6 !important; border-color: #60a5fa !important; }
+        video { width: 100%; aspect-ratio: 16/9; background: #000; border-radius: 12px; }
+        .source-badge { font-size: 8px; font-weight: 800; padding: 2px 4px; border-radius: 4px; margin-left: 4px; color: white; }
+    </style>
+</head>
+<body class="min-h-screen">
+
+    <nav class="sticky top-0 z-50 p-4 glass border-b border-slate-800 shadow-xl">
+        <div class="container mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+            <h1 class="text-2xl font-black tracking-tighter bg-gradient-to-r from-blue-500 to-indigo-400 bg-clip-text text-transparent cursor-pointer" onclick="location.reload()">
+                CINESTREAM
+            </h1>
+            <div class="relative w-full max-w-xl group">
+                <input id="searchInput" type="text" placeholder="Tìm tên phim (Ví dụ: Túy Quyền, Avengers...)" 
+                    class="w-full px-5 py-3 rounded-2xl bg-slate-900/50 border border-slate-700 focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all text-sm">
+                <button onclick="searchMovies()" class="absolute right-2 top-2 bg-blue-600 hover:bg-blue-500 p-2 rounded-xl transition">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container mx-auto px-4 py-8">
+        
+        <div id="searchGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6">
+            </div>
+
+        <div id="playerSection" class="hidden animate-in fade-in duration-500">
+            <button onclick="backToSearch()" class="mb-6 flex items-center gap-2 text-slate-400 hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+                Quay lại tìm kiếm
+            </button>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div class="lg:col-span-2 space-y-6">
+                    <div class="relative group shadow-2xl shadow-blue-500/10 rounded-2xl overflow-hidden border border-slate-800">
+                        <video id="video" controls></video>
+                        <div id="videoOverlay" class="absolute inset-0 flex items-center justify-center bg-slate-950/90 hidden">
+                            <div class="flex flex-col items-center gap-4">
+                                <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-blue-500"></div>
+                                <p class="text-xs text-slate-400">Đang kết nối nguồn phát...</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="movieMeta"></div>
+                </div>
+
+                <div class="lg:col-span-1 space-y-6">
+                    <div class="glass p-6 rounded-2xl border border-slate-800">
+                        <h3 class="font-bold text-slate-200 mb-4 flex items-center gap-2">
+                            <svg class="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20"><path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4z"></path></svg>
+                            Danh sách nguồn & tập
+                        </h3>
+                        <div id="serverTabs" class="flex gap-2 overflow-x-auto pb-4 scrollbar-hide mb-4"></div>
+                        <div id="episodeList" class="grid grid-cols-3 gap-2 max-h-[400px] overflow-y-auto pr-2"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const TMDB_KEY = '13ef7c19ea1570a748cdceff664dbf42';
+        const hls = new Hls();
+        const video = document.getElementById('video');
+
+        // Bắt sự kiện Enter khi search
+        document.getElementById('searchInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') searchMovies();
+        });
+
+        async function searchMovies() {
+            const query = document.getElementById('searchInput').value;
+            if (!query) return;
+
+            document.getElementById('playerSection').classList.add('hidden');
+            document.getElementById('searchGrid').classList.remove('hidden');
+            document.getElementById('searchGrid').innerHTML = '<div class="col-span-full text-center py-20 animate-pulse text-slate-500">Đang tìm phim...</div>';
+
+            try {
+                const res = await fetch(`https://api.themoviedb.org/3/search/multi?api_key=${TMDB_KEY}&language=vi-VN&query=${encodeURIComponent(query)}`);
+                const data = await res.json();
+                
+                const results = data.results.filter(i => i.media_type === 'movie' || i.media_type === 'tv');
+                renderSearchGrid(results);
+            } catch (err) {
+                alert("Lỗi kết nối TMDB");
+            }
+        }
+
+        function renderSearchGrid(items) {
+            const grid = document.getElementById('searchGrid');
+            grid.innerHTML = items.map(item => `
+                <div onclick="loadMovieDetail('${item.media_type}', ${item.id})" class="movie-card cursor-pointer group">
+                    <div class="relative overflow-hidden rounded-2xl mb-3 shadow-lg">
+                        <img src="${item.poster_path ? 'https://image.tmdb.org/t/p/w300' + item.poster_path : 'https://placehold.co/300x450/1e293b/white?text=No+Image'}" 
+                             class="w-full aspect-[2/3] object-cover transition duration-500">
+                        <div class="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent opacity-0 group-hover:opacity-100 transition duration-300 flex items-end p-4">
+                            <span class="bg-blue-600 text-[10px] font-bold px-2 py-1 rounded">XEM NGAY</span>
+                        </div>
+                    </div>
+                    <h3 class="text-sm font-semibold truncate group-hover:text-blue-400 transition">${item.title || item.name}</h3>
+                    <p class="text-xs text-slate-500">${(item.release_date || item.first_air_date || '').split('-')[0] || 'N/A'}</p>
+                </div>
+            `).join('');
+        }
+
+        async function loadMovieDetail(type, id) {
+            document.getElementById('searchGrid').classList.add('hidden');
+            document.getElementById('playerSection').classList.remove('hidden');
+            document.getElementById('serverTabs').innerHTML = '<div class="text-xs text-slate-500 animate-pulse">Đang quét nguồn phát...</div>';
+            document.getElementById('episodeList').innerHTML = '';
+
+            try {
+                // Lấy Meta chuẩn
+                const metaRes = await fetch(`https://api.themoviedb.org/3/${type}/${id}?api_key=${TMDB_KEY}&language=vi-VN`);
+                const meta = await metaRes.json();
+                renderMeta(meta);
+
+                const movieTitle = meta.title || meta.name;
+
+                // Quét 3 nguồn song song
+                const [resTmdbId, resKkSearch, resOpSearch] = await Promise.allSettled([
+                    fetch(`https://phimapi.com/tmdb/${type}/${id}`).then(r => r.json()),
+                    fetch(`https://phimapi.com/v1/api/tim-kiem?keyword=${encodeURIComponent(movieTitle)}`).then(r => r.json()),
+                    fetch(`https://ophim1.com/v1/api/tim-kiem?keyword=${encodeURIComponent(movieTitle)}`).then(r => r.json())
+                ]);
+
+                let allServers = [];
+
+                if (resTmdbId.status === 'fulfilled' && resTmdbId.value.status) {
+                    resTmdbId.value.episodes.forEach(s => allServers.push({...s, src: 'TMDB', color: 'bg-blue-500'}));
+                }
+
+                if (resKkSearch.status === 'fulfilled' && resKkSearch.value.data.items.length > 0) {
+                    const detail = await fetch(`https://phimapi.com/phim/${resKkSearch.value.data.items[0].slug}`).then(r => r.json());
+                    detail.episodes.forEach(s => allServers.push({...s, server_name: s.server_name + ' (Kk)', src: 'KKPHIM', color: 'bg-red-500'}));
+                }
+
+                if (resOpSearch.status === 'fulfilled' && resOpSearch.value.data.items.length > 0) {
+                    const detail = await fetch(`https://ophim1.com/v1/api/phim/${resOpSearch.value.data.items[0].slug}`).then(r => r.json());
+                    detail.data.item.episodes.forEach(s => allServers.push({...s, src: 'OPHIM', color: 'bg-amber-500'}));
+                }
+
+                if (allServers.length === 0) {
+                    document.getElementById('serverTabs').innerHTML = '<p class="text-red-500 text-xs">Không tìm thấy nguồn phát trực tiếp.</p>';
+                    return;
+                }
+
+                renderServers(allServers);
+            } catch (err) { console.error(err); }
+        }
+
+        function renderMeta(m) {
+            document.getElementById('movieMeta').innerHTML = `
+                <h2 class="text-4xl font-black mb-2">${m.title || m.name}</h2>
+                <div class="flex flex-wrap gap-3 items-center text-sm text-slate-400 mb-4">
+                    <span class="text-yellow-500 font-bold">⭐ ${m.vote_average.toFixed(1)}</span>
+                    <span>${(m.release_date || m.first_air_date).split('-')[0]}</span>
+                    <div class="flex gap-2">
+                        ${m.genres.slice(0, 3).map(g => `<span class="bg-slate-800 px-2 py-0.5 rounded text-[10px]">${g.name}</span>`).join('')}
+                    </div>
+                </div>
+                <p class="text-slate-400 text-sm leading-relaxed border-l-2 border-blue-600 pl-4">${m.overview || 'Nội dung đang cập nhật...'}</p>
+            `;
+        }
+
+        function renderServers(servers) {
+            const tabs = document.getElementById('serverTabs');
+            tabs.innerHTML = servers.map((s, idx) => `
+                <button onclick="changeServer(${idx})" id="srv-${idx}" class="srv-btn whitespace-nowrap px-4 py-2 rounded-xl bg-slate-800 border border-slate-700 text-[10px] font-bold hover:bg-slate-700 transition">
+                    ${s.server_name} <span class="source-badge ${s.color}">${s.src}</span>
+                </button>
+            `).join('');
+            window.currentServers = servers;
+            changeServer(0);
+        }
+
+        function changeServer(idx) {
+            document.querySelectorAll('.srv-btn').forEach(b => b.classList.remove('ring-2', 'ring-blue-500'));
+            document.getElementById(`srv-${idx}`).classList.add('ring-2', 'ring-blue-500');
+            
+            const eps = window.currentServers[idx].server_data;
+            const list = document.getElementById('episodeList');
+            list.innerHTML = eps.map((ep, eIdx) => `
+                <button onclick="playVideo('${ep.link_m3u8}', this)" class="ep-item p-2 rounded-lg bg-slate-900 border border-slate-800 text-[11px] hover:border-blue-500 transition truncate">
+                    ${ep.name}
+                </button>
+            `).join('');
+            
+            if (eps.length > 0) list.querySelector('.ep-item').click();
+        }
+
+        function playVideo(url, btn) {
+            document.querySelectorAll('.ep-item').forEach(i => i.classList.remove('active-ep'));
+            btn.classList.add('active-ep');
+            document.getElementById('videoOverlay').classList.remove('hidden');
+
+            if (Hls.isSupported()) {
+                hls.loadSource(url);
+                hls.attachMedia(video);
+                hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                    video.play();
+                    document.getElementById('videoOverlay').classList.add('hidden');
+                });
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = url;
+                video.addEventListener('loadedmetadata', () => {
+                    video.play();
+                    document.getElementById('videoOverlay').classList.add('hidden');
+                });
+            }
+        }
+
+        function backToSearch() {
+            document.getElementById('playerSection').classList.add('hidden');
+            document.getElementById('searchGrid').classList.remove('hidden');
+            video.pause();
+        }
+    </script>
+</body>
+</html>
