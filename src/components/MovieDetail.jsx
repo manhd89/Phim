@@ -4,7 +4,7 @@ import axios from 'axios';
 import { Typography, Select, MenuItem, Tabs, Tab, Box, CircularProgress } from '@mui/material';
 import VideoPlayer from './VideoPlayer';
 
-const TMDB_API_KEY = 'YOUR_TMDB_API_KEY';
+const TMDB_API_KEY = '13ef7c19ea1570a748cdceff664dbf42';
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 const PHIMAPI_BASE_URL = 'https://phimapi.com/tmdb';
 const OPHIM_BASE_URL = 'https://ophim1.com/v1/api'; // Hoặc https://ophim17.cc/v1/api nếu cần
