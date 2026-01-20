@@ -3,7 +3,7 @@ import { TextField, Button, Box } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
-const TMDB_API_KEY = '13ef7c19ea1570a748cdceff664dbf42'; // Thay bằng key thật của bạn
+const TMDB_API_KEY = '13ef7c19ea1570a748cdceff664dbf42';
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 
 export default function SearchBar() {
@@ -12,15 +12,17 @@ export default function SearchBar() {
 
   const handleSearch = async () => {
     if (!query.trim()) return;
+
     try {
       const res = await axios.get(
-        `\( {TMDB_BASE_URL}/search/multi?api_key= \){TMDB_API_KEY}&query=${encodeURIComponent(query)}&language=vi-VN`
+        `${TMDB_BASE_URL}/search/multi?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(query)}&language=vi-VN`
       );
-      const firstResult = res.data.results[0];
-      if (firstResult) {
-        const type = firstResult.media_type === 'tv' ? 'tv' : 'movie';
-        navigate(`/\( {type}/ \){firstResult.id}`);
-      }
+
+      const firstResult = res.data?.results?.[0];
+      if (!firstResult) return;
+
+      const type = firstResult.media_type === 'tv' ? 'tv' : 'movie';
+      navigate(`/${type}/${firstResult.id}`);
     } catch (error) {
       console.error('Search error:', error);
     }
