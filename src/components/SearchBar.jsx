@@ -3,7 +3,7 @@ import { TextField, Button, Box } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
-const TMDB_API_KEY = 'YOUR_TMDB_API_KEY'; // Thay bằng key thật của bạn
+const TMDB_API_KEY = '13ef7c19ea1570a748cdceff664dbf42'; // Thay bằng key thật của bạn
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 
 export default function SearchBar() {
