@@ -3,13 +3,11 @@ import { useParams } from "react-router-dom";
 import axios from "axios";
 import Hls from "hls.js";
 
-const TMDB_KEY = "13ef7c19ea1570a748cdceff664dbf42";
-const TMDB = "https://api.themoviedb.org/3";
-const IMAGE = "https://image.tmdb.org/t/p/w500";
+import { getMovieStreams } from "../services/movieSource";
 
-const PHIMAPI = "https://phimapi.com/tmdb";
-const OPHIM_SEARCH = "https://ophim1.com/v1/api/tim-kiem";
-const OPHIM_DETAIL = "https://ophim1.com/v1/api/phim";
+const TMDB_KEY = "13ef7c19ea1570a748cdceff664dbf42";
+const TMDB_BASE = "https://api.themoviedb.org/3";
+const IMAGE = "https://image.tmdb.org/t/p/w500";
 
 export default function MovieDetail() {
   const { type, id } = useParams();
@@ -19,126 +17,180 @@ export default function MovieDetail() {
   const [phimapiEps, setPhimapiEps] = useState([]);
   const [ophimEps, setOphimEps] = useState([]);
 
-  const [source, setSource] = useState("phimapi");
+  const [source, setSource] = useState(null);
+  const [currentEp, setCurrentEp] = useState(null);
   const [m3u8, setM3u8] = useState(null);
 
-  /* ================= UTILS ================= */
-
-  const normalize = (s = "") =>
-    s.toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-z0-9]/g, "");
+  const [loading, setLoading] = useState(true);
 
   /* ================= LOAD DATA ================= */
 
   useEffect(() => {
+    let mounted = true;
+
     (async () => {
-      /* 1️⃣ TMDB */
-      const tmdbRes = await axios.get(
-        `${TMDB}/${type}/${id}?api_key=${TMDB_KEY}&language=vi-VN`
-      );
-      const tmdbData = tmdbRes.data;
-      setTmdb(tmdbData);
+      setLoading(true);
 
-      /* 2️⃣ PHIMAPI (ƯU TIÊN) */
       try {
-        const phimapiRes = await axios.get(`${PHIMAPI}/${type}/${id}`);
-        if (phimapiRes.data?.status) {
-          const eps = phimapiRes.data.episodes.flatMap(s =>
-            s.server_data.map(e => ({
-              ...e,
-              server: s.server_name,
-              source: "phimapi",
-            }))
-          );
-          setPhimapiEps(eps);
-          if (eps[0]?.link_m3u8) setM3u8(eps[0].link_m3u8);
-        }
-      } catch {}
-
-      /* 3️⃣ OPHIM (FALLBACK) */
-      try {
-        const keyword = tmdbData.title || tmdbData.name;
-        const search = await axios.get(
-          `${OPHIM_SEARCH}?keyword=${encodeURIComponent(keyword)}`
+        /* 1️⃣ TMDB */
+        const tmdbRes = await axios.get(
+          `${TMDB_BASE}/${type}/${id}?api_key=${TMDB_KEY}&language=vi-VN`
         );
+        if (!mounted) return;
 
-        const item = search.data?.data?.items?.find(i => {
-          if (!i.tmdb?.id) return false;
-          return i.tmdb.id.toString() === id.toString();
+        setTmdb(tmdbRes.data);
+
+        /* 2️⃣ Streams từ module */
+        const streams = await getMovieStreams({
+          type,
+          tmdb: tmdbRes.data,
         });
 
-        if (!item) return;
+        if (!mounted) return;
 
-        const detail = await axios.get(`${OPHIM_DETAIL}/${item.slug}`);
-        const eps = detail.data.data.item.episodes.flatMap(s =>
-          s.server_data.map(e => ({
-            ...e,
-            server: s.server_name,
-            source: "ophim",
-          }))
-        );
+        setPhimapiEps(streams.phimapi);
+        setOphimEps(streams.ophim);
 
-        setOphimEps(eps);
-      } catch {}
+        /* 3️⃣ Ưu tiên PhimAPI */
+        if (streams.phimapi.length > 0) {
+          setSource("phimapi");
+          setCurrentEp(streams.phimapi[0]);
+          setM3u8(streams.phimapi[0].link_m3u8);
+        } else if (streams.ophim.length > 0) {
+          setSource("ophim");
+          setCurrentEp(streams.ophim[0]);
+          setM3u8(streams.ophim[0].link_m3u8);
+        }
+      } catch (err) {
+        console.error("MovieDetail error:", err);
+      } finally {
+        setLoading(false);
+      }
     })();
+
+    return () => {
+      mounted = false;
+    };
   }, [id, type]);
 
   /* ================= PLAYER ================= */
 
   useEffect(() => {
     if (!m3u8) return;
+
     const video = document.getElementById("video");
+    if (!video) return;
+
+    let hls;
 
     if (Hls.isSupported()) {
-      const hls = new Hls();
+      hls = new Hls();
       hls.loadSource(m3u8);
       hls.attachMedia(video);
-      return () => hls.destroy();
     } else {
       video.src = m3u8;
     }
+
+    return () => {
+      if (hls) hls.destroy();
+    };
   }, [m3u8]);
 
   /* ================= UI ================= */
 
+  if (loading) return <p>Đang tải phim...</p>;
+  if (!tmdb) return <p>Không tìm thấy phim</p>;
+
   const episodes = source === "phimapi" ? phimapiEps : ophimEps;
 
   return (
-    <div style={{ maxWidth: 900, margin: "auto" }}>
-      {tmdb && (
-        <>
-          <h2>{tmdb.title || tmdb.name}</h2>
-          <img src={IMAGE + tmdb.poster_path} width={220} />
-          <p>{tmdb.overview}</p>
-        </>
-      )}
+    <div style={{ maxWidth: 1000, margin: "auto", padding: 20 }}>
+      {/* INFO */}
+      <div style={{ display: "flex", gap: 20 }}>
+        <img
+          src={IMAGE + tmdb.poster_path}
+          alt={tmdb.title || tmdb.name}
+          width={220}
+          style={{ borderRadius: 8 }}
+        />
 
-      <div style={{ margin: "20px 0" }}>
-        <button onClick={() => setSource("phimapi")}>
-          PhimAPI
-        </button>
-        <button onClick={() => setSource("ophim")}>
-          Ophim
-        </button>
+        <div>
+          <h1>{tmdb.title || tmdb.name}</h1>
+          <p>{tmdb.overview}</p>
+          <p>
+            Năm:{" "}
+            {(tmdb.release_date || tmdb.first_air_date || "").slice(0, 4)}
+          </p>
+          <p>Đánh giá: {tmdb.vote_average}</p>
+        </div>
       </div>
 
-      {episodes.map((ep, i) => (
-        <button
-          key={i}
-          onClick={() =>
-            setM3u8(ep.link_m3u8 || ep.link_embed)
-          }
-        >
-          {ep.name} – {ep.server}
-        </button>
-      ))}
+      {/* SOURCE SWITCH */}
+      <div style={{ marginTop: 20 }}>
+        {phimapiEps.length > 0 && (
+          <button
+            onClick={() => {
+              setSource("phimapi");
+              setCurrentEp(phimapiEps[0]);
+              setM3u8(phimapiEps[0].link_m3u8);
+            }}
+            style={{
+              marginRight: 10,
+              fontWeight: source === "phimapi" ? "bold" : "normal",
+            }}
+          >
+            PhimAPI
+          </button>
+        )}
 
+        {ophimEps.length > 0 && (
+          <button
+            onClick={() => {
+              setSource("ophim");
+              setCurrentEp(ophimEps[0]);
+              setM3u8(ophimEps[0].link_m3u8);
+            }}
+            style={{
+              fontWeight: source === "ophim" ? "bold" : "normal",
+            }}
+          >
+            Ophim
+          </button>
+        )}
+      </div>
+
+      {/* EPISODES */}
+      <div style={{ marginTop: 15 }}>
+        {episodes.map((ep, idx) => (
+          <button
+            key={idx}
+            onClick={() => {
+              setCurrentEp(ep);
+              setM3u8(ep.link_m3u8 || ep.link_embed);
+            }}
+            style={{
+              marginRight: 8,
+              marginBottom: 8,
+              background:
+                currentEp === ep ? "#1976d2" : "#eee",
+              color: currentEp === ep ? "#fff" : "#000",
+            }}
+          >
+            {ep.name} – {ep.server}
+          </button>
+        ))}
+      </div>
+
+      {/* PLAYER */}
       <video
         id="video"
         controls
-        style={{ width: "100%", marginTop: 20 }}
+        style={{
+          width: "100%",
+          marginTop: 20,
+          borderRadius: 8,
+          background: "#000",
+        }}
       />
     </div>
   );
